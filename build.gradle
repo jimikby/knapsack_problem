@@ -1,0 +1,164 @@
+List shopItems = new ArrayList()
+Map itemsSort = new HashMap()
+
+ext.shopFileName = 'shop-items.txt'
+ext.bagVolume = 30
+ext.maxCostItem = 100
+ext.maxVolumeItem = 100
+ext.itemsQuantity = 300
+ext.percentChanceToSummonItem = 10
+ext.silentMode = true
+ext.candyBag = new Bag()
+
+task generateDataFile {
+	def text = new String()
+	1.upto(itemsQuantity, { 
+		def cost = rnd(maxCostItem,1)
+		def volume = rnd(maxVolumeItem,1)
+		text += cost + ";" + volume + '\r\n'
+	})
+	 def shopFile = new File(shopFileName)
+	 shopFile.createNewFile()
+	 shopFile.setText(text)  
+}
+
+task readFromFlie {
+	def i = 0
+	file(shopFileName).text.split('\r\n').each { 
+		def item = new Item()
+		def itemParams = it.split(';')
+		item.id = ++i
+		item.cost = Integer.valueOf(itemParams[0])
+		item.volume = Integer.valueOf(itemParams[1])
+		item.ratio = ((item.cost / item.volume) * 1000) + 1
+		shopItems.add(item)
+		itemsSort.put(item,item.ratio)
+		fillBag(itemsSort)
+		println 'candyBag cost=' + candyBag.bagCost() +  ', volume=' + candyBag.currentVolume()
+	}
+}
+
+Bag fillBag(Map itemsSort) {
+	 def bag = new Bag() 
+	 bag.volume = bagVolume
+	 bag.items = new ArrayList()
+	 itemsSort = itemsSort.sort { a, b -> b.value <=> a.value }
+	 bag = fillBag(bag,itemsSort)
+	 return bag
+	}
+	
+Bag fillBag (Bag bag, Map itemsSort) {
+	 itemsSort.each { item, ratio ->
+	 	def exceptedVolume = bag.volume - (bag.currentVolume() + item.volume)
+		if (bag.currentVolume() + item.volume <= bag.volume) {
+		bag.items.add(item)
+		printlnItem(item,exceptedVolume,'-> add item ( v=',false)
+		} else {
+			printlnItem(item,exceptedVolume,'<- drop item ( v=',false)
+		}
+		def newItem = generateNewItem(percentChanceToSummonItem)
+		if (newItem != null) {
+			bag = optimizeBag(newItem,bag)
+		}
+	 }
+	 println "bag cost=" + bag.bagCost() + ", bagVolume=" + bag.currentVolume()
+	 bag.items.each {printlnItem(it,-1,'',false)}
+	 return bag
+}
+
+void printlnItem(Item item,int exceptedVolume, String addMsg, boolean silentOverride) {
+if (!silentMode || silentOverride) {
+	if (exceptedVolume == -1) {
+			println addMsg + 'cost=' + item.cost + ', volume=' + item.volume +', ratio=' + item.ratio / 1000
+		} else {
+		println addMsg + exceptedVolume + '): cost=' + item.cost + ', volume=' + item.volume +', ratio=' + item.ratio / 1000
+		}
+	}	
+}
+
+Item generateNewItem(int chance) {
+	Item item
+	if (rnd(100,1) < (chance + 1)) {
+		item = new Item()
+		item.cost = rnd(maxCostItem,1)
+		item.volume = rnd(maxVolumeItem,1)
+		item.ratio = ((item.cost / item.volume) * 1000) + 1
+	}
+	return item
+}
+
+int rnd(int rnd, int start) {
+	return Math.abs(new Random().nextInt() % rnd) + start
+}
+
+Bag optimizeBag (Item item, Bag bag) {
+	printlnItem(item,-1,'SUMMON NEW ITEM! ',true)
+	Map itemsSortTmp = new HashMap()
+	bag.items.each { bagItem ->
+		itemsSortTmp.put(bagItem,bagItem.ratio)
+	}
+	itemsSortTmp.put(item,item.ratio)
+	Bag newBag = fillBag(itemsSortTmp)
+		
+	return compareBag(bag,newBag)
+}
+	
+Bag compareBag(Bag bag1, Bag bag2) {
+
+	if (candyBag.bagCost()>= bag1.bagCost() && candyBag.currentVolume() <= bag1.currentVolume()) {
+	return candyBag
+		} else {
+		if (bag1.bagCost() < bag2.bagCost()) {
+				println 'THE NEW BAG IS BETTER!!! - old bag cost: ' + bag1.bagCost() + ' - new bag cost: ' + bag2.bagCost()
+				updateCandyBag(bag2)
+				return bag2
+			} else {
+			println 'THE OLD BAG IS BETTER!!! - old bag cost: ' + bag1.bagCost() + ' - new bag cost: ' + bag2.bagCost()
+			updateCandyBag(bag1)
+			return bag1
+		}
+	}	
+}
+
+void updateCandyBag(Bag bag) {
+	candyBag = bag
+}
+
+
+
+class Bag {
+	int volume
+	List items
+	int nestingDegree
+	
+	int nestingDegreePlus () {
+	nestingDegree++
+	}
+	
+	int nestingDegreeMinus () {
+	nestingDegree--
+	}
+	
+	int currentVolume () {
+	int currentVolume = 0
+	items.each { item ->
+	currentVolume += item.volume
+	}
+	return currentVolume
+	}
+	
+	int bagCost () {
+	int bagCost = 0
+	items.each { item ->
+	bagCost += item.cost
+	}
+	return bagCost
+	}
+}
+
+class Item {
+	int id
+	int cost
+	int volume
+	int ratio
+}
